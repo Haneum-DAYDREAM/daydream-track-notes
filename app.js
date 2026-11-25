@@ -5,8 +5,8 @@
 
   var PAGE_COUNT = 16;
   var PAGE_RATIO = 128 / 182; // width / height of every plate
-  var PLATE_W = 1008;         // the plates' own pixel size — the zoom view always
-  var PLATE_H = 1434;         // shows them at this ratio, never stretched to fit
+  var PLATE_W = 2016;         // the plates' own pixel size (400dpi) — the zoom view
+  var PLATE_H = 2867;         // always shows them at this ratio, never stretched to fit
 
   /* JANG HANEUM · 2nd EP [DAYDREAM] — Apple Music album 1888138163
      (2026-03-30, 9 tracks). Each scene points the official dark embed at its
@@ -400,7 +400,7 @@
   };
   var zoomHideTimer = null;
 
-  /* Fit the plate inside the zoom canvas at its own 1008:1434 ratio. The box is
+  /* Fit the plate inside the zoom canvas at its own 2016:2867 ratio. The box is
      written in pixels so the picture is never squeezed by max-width alone: the
      width/height attributes carry the ratio before the file has decoded. */
   function layoutPlate() {

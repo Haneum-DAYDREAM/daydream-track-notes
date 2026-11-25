@@ -474,13 +474,13 @@ body::before{
 
 .zoom-canvas img{
   display:block;
-  /* a plate is always 1008×1434 and is never stretched to the box: app.js fits
-     it in pixels, and these caps keep the ratio even mid-resize */
+  /* a plate is always 2016×2867 (128:182) and is never stretched to the box: app.js
+     fits it in pixels, and these caps keep the ratio even mid-resize */
   width:auto;
   height:auto;
   max-width:100%;
   max-height:100%;
-  aspect-ratio:1008 / 1434;
+  aspect-ratio:2016 / 2867;
   object-fit:contain;
   flex:0 0 auto;
   box-shadow:0 24px 60px rgba(0,0,0,.55);
