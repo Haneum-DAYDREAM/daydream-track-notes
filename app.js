@@ -405,6 +405,9 @@
 
   function goToTrack(index) {
     if (index < 0 || index >= TRACKS.length) { return; }
+    // a jump from the drawer or the track buttons drops any two-finger scale:
+    // the pages it sharpened are about to be a different spread
+    if (bz.scale > 1.001) { resetBaseZoom(); }
     if (!pageFlip) { setTrack(index); return; }
     var target = normalizeIndex(TRACKS[index].page - 1);
     var plates = visiblePlates(currentIndex);
@@ -897,6 +900,7 @@
       b.addEventListener('click', function () {
         var target = normalizeIndex(parseInt(b.dataset.page, 10) - 1);
         focusLock = false;
+        if (bz.scale > 1.001) { resetBaseZoom(); }
         pageFlip.turnToPage(target);
         closeToc();
       });
