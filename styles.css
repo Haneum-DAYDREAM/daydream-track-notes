@@ -139,6 +139,7 @@ body::before{
   align-items:center;
   justify-content:center;
   padding:clamp(8px,1.6vh,26px) var(--pad);
+  overflow:hidden;   /* a pinch-scaled spread stays inside the stage */
 }
 
 .book-wrap{
@@ -148,7 +149,11 @@ body::before{
   justify-content:center;
   height:100%;
   width:100%;
+  transform-origin:50% 50%;
 }
+/* pinch zoom on the stage (app.js): the spread scales in place */
+.stage.is-zoomed .book-wrap{will-change:transform;}
+.stage.is-zoomed{cursor:grab;}
 
 .book{
   /* size is set from app.js so the spread always fits the free area */
@@ -368,9 +373,12 @@ body::before{
   flex-direction:column;
   background:radial-gradient(120% 100% at 50% 40%, #141312 0%, #0a0908 70%);
   opacity:0;
-  transition:opacity .3s ease;
+  /* the viewer must be gone on its own terms: visibility flips with the fade,
+     so no browser can leave the last frame painted over the magazine */
+  visibility:hidden;
+  transition:opacity .3s ease, visibility 0s linear .32s;
 }
-.zoom.is-open{opacity:1;}
+.zoom.is-open{opacity:1;visibility:visible;transition:opacity .3s ease;}
 .zoom[hidden]{display:none;}
 
 .zoom-bar{
@@ -448,9 +456,11 @@ body::before{
   align-items:center;
   justify-content:center;
   transform-origin:center center;
-  will-change:transform;
+  will-change:auto;
   transition:transform .22s cubic-bezier(.25,.7,.25,1);
 }
+/* prime the layer only while the viewer is up — a closed viewer keeps nothing */
+.zoom.is-open .zoom-canvas{will-change:transform;}
 
 @media (max-width:520px){
   .zoom-fit{display:none;}
@@ -626,43 +636,54 @@ body::before{
 /* ---------- small screens ---------- */
 
 @media (max-width:760px){
-  :root{--hdr-h:50px;}
+  :root{--hdr-h:46px;}
 
-  .stage{padding:8px 10px 4px;}
+  /* the plate takes the width it can get: no side padding, the arrows sit on
+     top of the plate's own margins */
+  .stage{padding:2px 0 2px;}
 
   .brand-main{font-size:17px;}
   .brand-sub{font-size:8.5px;letter-spacing:.34em;}
   .counter{display:inline;font-size:9px;letter-spacing:.16em;}
   .hdr-right{gap:12px;}
-  .toc-btn{height:30px;padding:0 10px;letter-spacing:.18em;}
+  .toc-btn{height:28px;padding:0 9px;letter-spacing:.18em;}
   .toc-btn span{display:none;}
   .toc-btn svg{width:15px;height:15px;}
+  .toc-btn.icon-only{width:28px;}
 
+  /* bar: one compact line for the scene, then the embed at the smallest height
+     that still shows artwork, title, 재생 and 앱에서 보기 without clipping */
   .bar{
     grid-template-columns:minmax(0,1fr) auto;
     grid-template-areas:
       "id     controls"
       "player player";
-    row-gap:8px;
-    padding:8px 14px calc(8px + env(safe-area-inset-bottom));
-    gap:6px 12px;
+    row-gap:5px;
+    padding:5px 12px calc(6px + env(safe-area-inset-bottom));
+    gap:0 10px;
   }
-  .bar-id{grid-area:id;align-self:center;}
+  .bar-id{grid-area:id;align-self:center;gap:3px;}
   .bar-controls{grid-area:controls;}
   .bar-player{grid-area:player;justify-self:stretch;}
 
-  .bar-title{font-size:15px;}
-  .bar-scene{font-size:8px;letter-spacing:.28em;}
+  .bar-title{font-size:14px;}
+  .bar-scene{font-size:7.5px;letter-spacing:.26em;}
   .bar-hint{display:none;}
 
-  .ctl{width:34px;height:34px;}
+  .ctl{width:28px;height:28px;}
+  .ctl svg{width:16px;height:16px;}
 
-  .player-frame{width:100%;height:182px;}
+  .player-frame{width:100%;height:150px;}
 
-  .nav{width:34px;height:34px;}
-  .nav svg{width:18px;height:18px;}
+  .nav{width:26px;height:46%;opacity:.4;transform:translateY(-50%);}
+  .nav svg{width:17px;height:17px;}
   .nav-prev{left:0;}
   .nav-next{right:0;}
+}
+
+@media (max-width:480px){
+  .bar-title{font-size:13.5px;}
+  .player-frame{height:150px;}
 }
 
 /* short screens — landscape phones and small laptops. The player is scaled down

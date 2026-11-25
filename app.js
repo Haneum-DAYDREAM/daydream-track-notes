@@ -76,8 +76,11 @@
   var zoomPrev = el('zoomPrev');
   var zoomNext = el('zoomNext');
 
+  var wrapEl = document.querySelector('.book-wrap');
+
   var pageFlip = null;
   var isSpread = true;
+  var orientationFixAt = 0;
   // on touch devices the viewer owns the gestures (the library's own touch drag
   // leaves the flip in a busy state and swallows the next swipe)
   var ownGestures = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
@@ -163,6 +166,11 @@
   /* ---------------- flipbook ---------------- */
 
   function createFlip(m) {
+    // StPageFlip.destroy() takes its block element out of the document, so the
+    // book has to be put back before it can hold pages again — otherwise a
+    // relayout (window resize, orientation change) leaves a detached book and a
+    // black stage that never comes back.
+    if (!bookEl.parentNode && wrapEl) { wrapEl.appendChild(bookEl); }
     buildPages();
     applySize(m);
     isSpread = m.spread;
@@ -195,8 +203,20 @@
     pageFlip.on('changeState', function (e) {
       if (e.data === 'read') { renderBookState(); }
     });
-    pageFlip.on('changeOrientation', function () {
-      // library switched between single page and spread on its own
+    pageFlip.on('changeOrientation', function (e) {
+      // The library switched between single page and spread on its own. If it
+      // disagrees with the size we laid out, our page indexes stop matching its
+      // spreads (that is how a reader ends up on a '05-06' that draws nothing),
+      // so rebuild both around the same layout.
+      var landscape = (e && e.data) ? (e.data === 'landscape') : true;
+      if (landscape !== isSpread) {
+        var now = Date.now();
+        if (now - orientationFixAt > 600) {
+          orientationFixAt = now;
+          window.setTimeout(function () { if (pageFlip) { relayout(); } }, 0);
+        }
+        return;
+      }
       onFlip(pageFlip.getCurrentPageIndex());
     });
   }
@@ -204,7 +224,7 @@
   function relayout() {
     if (!pageFlip) { return; }
     var m = metrics();
-    var keep = currentIndex;
+    var keep = normalizeIndex(currentIndex, m.spread);
     try { pageFlip.destroy(); } catch (err) { /* already gone */ }
     pageFlip = null;
     currentIndex = keep;
@@ -219,9 +239,23 @@
     return [left];
   }
 
+  /* A spread's left page is always index 0, an odd index, or the very last
+     page — [2,3]=1, [4,5]=3 … So any other index (which is what a single-page
+     mode or a mid-animation report can hand us) belongs to the spread opened
+     before it. Keeping every index inside that set is what keeps the counter,
+     the turn target and the library's own spreads in step. */
+  function normalizeIndex(index, spreadMode) {
+    var spread = (spreadMode === undefined) ? isSpread : !!spreadMode;
+    index = Math.round(Number(index) || 0);
+    if (!spread) { return Math.min(PAGE_COUNT - 1, Math.max(0, index)); }
+    if (index <= 0) { return 0; }
+    if (index >= PAGE_COUNT - 1) { return PAGE_COUNT - 1; }
+    return (index % 2 === 1) ? index : index - 1;
+  }
+
   function onFlip(index) {
-    currentIndex = index;
-    var plates = visiblePlates(index);
+    currentIndex = normalizeIndex(index);
+    var plates = visiblePlates(currentIndex);
     renderCounter(plates);
     renderNav();
     // the closed/open shift waits until the leaf has landed
@@ -283,8 +317,10 @@
     if (!pageFlip) { return; }
     var state = 'read';
     try { state = pageFlip.getState(); } catch (err) { state = 'read'; }
-    if (state === 'read' || tries > 14) { cb(); return; }
-    window.setTimeout(function () { whenRead(cb, tries + 1); }, 24);
+    // a page turn takes ~760ms; turning in the middle of one leaves the
+    // library's spread and ours describing different pages
+    if (state === 'read' || tries > 60) { cb(); return; }
+    window.setTimeout(function () { whenRead(cb, tries + 1); }, 16);
   }
 
   function next() {
@@ -341,7 +377,7 @@
   function goToTrack(index) {
     if (index < 0 || index >= TRACKS.length) { return; }
     if (!pageFlip) { setTrack(index); return; }
-    var target = TRACKS[index].page - 1;
+    var target = normalizeIndex(TRACKS[index].page - 1);
     var plates = visiblePlates(currentIndex);
     if (plates.indexOf(TRACKS[index].page) !== -1) {
       setTrack(index);
@@ -362,6 +398,7 @@
     open: false, scale: 1, min: 1, max: 3, x: 0, y: 0, plate: 1,
     pointers: new Map(), pinch: null, lastTap: 0, lastTapX: 0, lastTapY: 0
   };
+  var zoomHideTimer = null;
 
   /* Fit the plate inside the zoom canvas at its own 1008:1434 ratio. The box is
      written in pixels so the picture is never squeezed by max-width alone: the
@@ -405,6 +442,7 @@
     if (!pageFlip) { return; }
     var plates = visiblePlates(currentIndex);
     closeToc();
+    window.clearTimeout(zoomHideTimer);
     zoomEl.hidden = false;
     zoomEl.setAttribute('aria-hidden', 'false');
     zv.open = true;
@@ -434,13 +472,61 @@
     if (!pageFlip) { return; }
     plate = Math.min(PAGE_COUNT, Math.max(1, plate));
     if (visiblePlates(currentIndex).indexOf(plate) !== -1) { return; }
-    var target = isSpread ? spreadIndexFor(plate) : plate - 1;
+    var target = normalizeIndex(isSpread ? spreadIndexFor(plate) : plate - 1);
     target = Math.min(PAGE_COUNT - 1, Math.max(0, target));
     if (target === currentIndex) { return; }
     focusLock = false;   // the bar follows the spread the reader lands on
-    whenRead(function () { pageFlip.turnToPage(target); }, 0);
+    showSpreadAt(target);
   }
 
+  /* Turn only once the library is at rest, then check it actually got there —
+     a turn it swallowed (or re-showed away when an animation ended) would leave
+     the stage with no page drawn at all. */
+  function showSpreadAt(target) {
+    whenRead(function () {
+      if (!pageFlip) { return; }
+      try { pageFlip.turnToPage(target); } catch (err) { /* nothing to turn */ }
+      window.setTimeout(function () { verifySpreadAt(target); }, 70);
+    }, 0);
+  }
+
+  function verifySpreadAt(target) {
+    if (!pageFlip) { return; }
+    var landed = normalizeIndex(pageFlip.getCurrentPageIndex());
+    if (landed !== target) {
+      try { pageFlip.turnToPage(target); } catch (err) { /* nothing to turn */ }
+      landed = normalizeIndex(pageFlip.getCurrentPageIndex());
+    }
+    onFlip(landed);
+    if (!pagesPainted()) {
+      // nothing is drawn: rebuild the book at the size this layout wants rather
+      // than leave the stage showing an empty dark rectangle
+      relayout();
+      window.setTimeout(function () {
+        if (!pageFlip) { return; }
+        onFlip(normalizeIndex(currentIndex));
+        repaintBook();
+      }, 60);
+      return;
+    }
+    repaintBook();
+  }
+
+  function pagesPainted() {
+    var pages = bookEl.querySelectorAll('.page');
+    for (var i = 0; i < pages.length; i++) {
+      var cs = window.getComputedStyle(pages[i]);
+      if (cs.display === 'none' || cs.visibility === 'hidden') { continue; }
+      if (pages[i].getBoundingClientRect().width > 8) { return true; }
+    }
+    return false;
+  }
+
+  /* Closing must leave nothing of the viewer's layer behind: a full-screen
+     fixed overlay holding a primed, scaled plate is exactly what desktop
+     browsers keep painting as a black screen after the viewer is gone. So the
+     overlay is made invisible on its own (visibility, not only opacity), and
+     the plate bitmap, its layer and the book underneath are rebuilt. */
   function closeZoom() {
     if (!zv.open) { return; }
     var lastPlate = zv.plate;
@@ -449,15 +535,37 @@
     zoomEl.setAttribute('aria-hidden', 'true');
     zv.pointers.clear();
     zv.pinch = null;
-    window.setTimeout(function () {
-      if (!zv.open) { zoomEl.hidden = true; }
-    }, 300);
+    zoomHint.classList.add('is-faded');
+    window.clearTimeout(zoomHideTimer);
+    zoomHideTimer = window.setTimeout(function () {
+      if (zv.open) { return; }
+      zoomEl.hidden = true;
+      zoomCanvas.innerHTML = '';
+      zoomCanvas.style.transition = 'none';
+      zoomCanvas.style.transform = '';
+      window.requestAnimationFrame(function () { zoomCanvas.style.transition = ''; });
+      // the viewer can come down on a book that had nothing painted under it
+      if (!pagesPainted()) { relayout(); }
+      repaintBook();
+    }, 340);
     syncBookToPlate(lastPlate);
     if (zoomBtn) { zoomBtn.focus({ preventScroll: true }); }
   }
 
+  /* force the book back through paint/raster once the overlay is gone: if the
+     browser dropped the book's tiles while it was covered, nothing else on the
+     page would ask it to draw them again */
+  function repaintBook() {
+    if (!pageFlip) { return; }
+    var keep = bookEl.style.transform;
+    bookEl.style.transform = 'none';
+    void bookEl.offsetWidth;
+    bookEl.style.transform = keep;
+    renderBookState();
+  }
+
   function applyZoom() {
-    zoomCanvas.style.transform = 'translate3d(' + zv.x + 'px,' + zv.y + 'px,0) scale(' + zv.scale + ')';
+    zoomCanvas.style.transform = 'translate(' + zv.x + 'px,' + zv.y + 'px) scale(' + zv.scale + ')';
     zoomPct.textContent = Math.round(zv.scale * 100) + '%';
     zoomIn.disabled = zv.scale >= zv.max - 0.001;
     zoomOut.disabled = zv.scale <= zv.min + 0.001;
@@ -590,6 +698,45 @@
     });
   }
 
+  /* ---------------- pinch zoom on the stage ---------------- */
+
+  /* The magnifier opens a viewer of its own; this is the quick gesture — two
+     fingers on the book scale and move the spread where it stands. While the
+     book is scaled, one finger moves it (a drag must not turn the page), and a
+     tap puts it back to fit. */
+  var bz = {
+    scale: 1, max: 4, x: 0, y: 0, pinch: null, pan: null
+  };
+
+  function applyBaseZoom() {
+    if (bz.scale <= 1.001) {
+      bz.scale = 1; bz.x = 0; bz.y = 0;
+      wrapEl.style.transform = '';
+      stageEl.classList.remove('is-zoomed');
+      return;
+    }
+    wrapEl.style.transform =
+      'translate(' + bz.x.toFixed(1) + 'px,' + bz.y.toFixed(1) + 'px) scale(' + bz.scale.toFixed(3) + ')';
+    stageEl.classList.add('is-zoomed');
+  }
+
+  function clampBasePan() {
+    var r = stageEl.getBoundingClientRect();
+    var overX = Math.max(0, (r.width * bz.scale - r.width) / 2);
+    var overY = Math.max(0, (r.height * bz.scale - r.height) / 2);
+    bz.x = Math.min(overX, Math.max(-overX, bz.x));
+    bz.y = Math.min(overY, Math.max(-overY, bz.y));
+  }
+
+  function resetBaseZoom() {
+    bz.pinch = null;
+    bz.pan = null;
+    bz.scale = 1;
+    bz.x = 0;
+    bz.y = 0;
+    applyBaseZoom();
+  }
+
   /* ---------------- table of contents ---------------- */
 
   function buildToc() {
@@ -611,7 +758,7 @@
 
     Array.prototype.forEach.call(document.querySelectorAll('.toc-aux'), function (b) {
       b.addEventListener('click', function () {
-        var target = parseInt(b.dataset.page, 10) - 1;
+        var target = normalizeIndex(parseInt(b.dataset.page, 10) - 1);
         focusLock = false;
         pageFlip.turnToPage(target);
         closeToc();
@@ -690,6 +837,7 @@
     window.addEventListener('resize', function () {
       if (resizeTimer) { window.clearTimeout(resizeTimer); }
       resizeTimer = window.setTimeout(function () {
+        resetBaseZoom();
         if (zv.open) { layoutPlate(); }
         var m = metrics();
         if (!pageFlip) { applySize(m); return; }
@@ -707,29 +855,111 @@
         if (window.innerWidth !== lastW || window.innerHeight !== lastH) {
           lastW = window.innerWidth; lastH = window.innerHeight; relayout();
         }
+        resetBaseZoom();
         if (zv.open) { layoutPlate(); }
       }, 260);
     });
 
-    // horizontal swipe on touch screens (kept alongside the library's own gestures;
-    // skipped when the library already turned the page during this gesture)
-    // horizontal swipe on touch screens. Capture-phase, so a library handler that
+    // Horizontal swipe on touch screens. Capture-phase, so a library handler that
     // stops propagation cannot hide the gesture; the decision is deferred a tick so
     // the library's own flip (if any) is counted first and not repeated.
+    // Two fingers are taken before the library sees them: they scale/move the spread
+    // (pinch zoom) instead of turning a page.
     var swipe = null;
     var suppressClickUntil = 0;
+
+    function touchPair(e) {
+      var a = e.touches[0];
+      var b = e.touches[1];
+      return {
+        d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+        mx: (a.clientX + b.clientX) / 2,
+        my: (a.clientY + b.clientY) / 2
+      };
+    }
+
     stageEl.addEventListener('touchstart', function (e) {
+      if (zv.open) { return; }
+      if (e.touches.length >= 2) {
+        e.preventDefault();
+        e.stopPropagation();
+        swipe = null;
+        bz.pan = null;
+        var p = touchPair(e);
+        bz.pinch = { d: p.d, mx: p.mx, my: p.my, scale: bz.scale, x: bz.x, y: bz.y };
+        suppressClickUntil = Date.now() + 600;
+        return;
+      }
+      if (bz.scale > 1.001 && e.touches.length === 1) {
+        // scaled in: one finger moves the spread
+        e.preventDefault();
+        e.stopPropagation();
+        swipe = null;
+        var t0 = e.touches[0];
+        bz.pan = { x: t0.clientX, y: t0.clientY, bx: bz.x, by: bz.y, moved: false };
+        return;
+      }
       if (e.touches.length !== 1) { swipe = null; return; }
       swipe = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), index: currentIndex };
-    }, { passive: true, capture: true });
+    }, { passive: false, capture: true });
 
     stageEl.addEventListener('touchmove', function (e) {
+      if (bz.pinch && e.touches.length >= 2) {
+        e.preventDefault();
+        e.stopPropagation();
+        var p = touchPair(e);
+        if (bz.pinch.d > 0) {
+          bz.scale = Math.min(bz.max, Math.max(1, bz.pinch.scale * (p.d / bz.pinch.d)));
+        }
+        if (bz.scale <= 1.001) {
+          bz.scale = 1; bz.x = 0; bz.y = 0;
+        } else {
+          bz.x = bz.pinch.x + (p.mx - bz.pinch.mx);
+          bz.y = bz.pinch.y + (p.my - bz.pinch.my);
+          clampBasePan();
+        }
+        applyBaseZoom();
+        return;
+      }
+      if (bz.pan && e.touches.length === 1) {
+        e.preventDefault();
+        e.stopPropagation();
+        var t1 = e.touches[0];
+        var px = t1.clientX - bz.pan.x;
+        var py = t1.clientY - bz.pan.y;
+        if (Math.abs(px) > 4 || Math.abs(py) > 4) { bz.pan.moved = true; }
+        bz.x = bz.pan.bx + px;
+        bz.y = bz.pan.by + py;
+        clampBasePan();
+        applyBaseZoom();
+        return;
+      }
       if (!swipe || !e.touches || !e.touches.length) { return; }
       swipe.lastX = e.touches[0].clientX;
       swipe.lastY = e.touches[0].clientY;
-    }, { passive: true, capture: true });
+    }, { passive: false, capture: true });
 
     stageEl.addEventListener('touchend', function (e) {
+      if (bz.pinch) {
+        if (e.touches.length >= 2) { return; }
+        bz.pinch = null;
+        suppressClickUntil = Date.now() + 250;
+        // barely off fit? call it fit, so the spread never sits a hair oversized
+        if (bz.scale < 1.08) { resetBaseZoom(); return; }
+        if (e.touches.length === 1) {
+          var rest = e.touches[0];
+          bz.pan = { x: rest.clientX, y: rest.clientY, bx: bz.x, by: bz.y, moved: true };
+        }
+        return;
+      }
+      if (bz.pan) {
+        var wasMoved = bz.pan.moved;
+        bz.pan = null;
+        suppressClickUntil = Date.now() + 420;
+        // a tap on a scaled spread puts it back to fit
+        if (!wasMoved) { resetBaseZoom(); }
+        return;
+      }
       if (!swipe) { return; }
       var s = swipe;
       swipe = null;
@@ -749,7 +979,7 @@
           if (dx < 0) { next(); } else { prev(); }
         }, 0);
       }, 0);
-    }, { passive: true, capture: true });
+    }, { passive: false, capture: true });
 
     // a swipe also produces a synthetic click; keep it from turning the page again
     stageEl.addEventListener('click', function (e) {
@@ -777,6 +1007,11 @@
   wire();
   preload();
 
+  // Safari's own page pinch would fight the spread's pinch zoom
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (name) {
+    document.addEventListener(name, function (e) { e.preventDefault(); }, { passive: false });
+  });
+
   // opt-in hook for automated checks (?debug=1)
   if (location.search.indexOf('debug=1') !== -1) {
     window.__tn = {
@@ -803,6 +1038,9 @@
       openZoom: openZoom,
       closeZoom: closeZoom,
       setZoomPlate: setZoomPlate,
+      syncBookToPlate: syncBookToPlate,
+      normalizeIndex: normalizeIndex,
+      onFlip: function (i) { onFlip(i); },
       flipState: function () { try { return pageFlip.getState(); } catch (e) { return 'n/a'; } },
       flipNext: function () { pageFlip.flipNext(); }
     };
