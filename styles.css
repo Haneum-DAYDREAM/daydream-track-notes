@@ -151,19 +151,38 @@ body::before{
   width:100%;
   transform-origin:50% 50%;
 }
-/* pinch zoom on the stage (app.js): the spread scales in place */
-.stage.is-zoomed .book-wrap{will-change:transform;}
+/* pinch zoom on the stage (app.js): the spread scales in place.
+   will-change is claimed only while the two fingers are down — it pins the layer
+   to the raster scale it started with, so leaving it on would keep the plate
+   blurred after the gesture; released, the browser re-draws at the new scale. */
+.stage.is-zoomed.is-pinching-base .book-wrap{will-change:transform;}
 .stage.is-zoomed{cursor:grab;}
 
 .book{
   /* size is set from app.js so the spread always fits the free area */
   position:relative;
-  filter:drop-shadow(0 26px 46px rgba(0,0,0,.62)) drop-shadow(0 3px 8px rgba(0,0,0,.5));
   opacity:0;
   transform:translateX(0);
   transition:opacity .5s ease, transform .48s cubic-bezier(.25,.7,.25,1);
 }
 .book.is-ready{opacity:1;}
+
+/* The shadow sits on its own layer, shaped like what is actually visible: one
+   plate on the cover and the curtain call, the whole spread inside. It used to
+   be filter: drop-shadow on the book, which on iOS makes the browser rasterise
+   the entire book — plates included — into one buffer before drawing it.
+   app.js sets --plate-x / --plate-w because the library decides which half of
+   the book the single plate is drawn in, and that differs from the book's box. */
+.book::before{
+  content:"";
+  position:absolute;
+  top:0;
+  bottom:0;
+  left:var(--plate-x,0);
+  width:var(--plate-w,100%);
+  z-index:-1;
+  box-shadow:0 26px 46px rgba(0,0,0,.62), 0 3px 8px rgba(0,0,0,.5);
+}
 
 .book .page{
   background:var(--bg-deep);
@@ -474,12 +493,11 @@ body::before{
 
 .zoom-canvas img{
   display:block;
-  /* a plate is always 2016×2867 (128:182) and is never stretched to the box: app.js
-     fits it in pixels, and these caps keep the ratio even mid-resize */
+  /* app.js writes the pixel size for the current zoom, so the browser resamples
+     the 600dpi plate at exactly the pixels it draws. No max-width/-height here:
+     a cap would clip the zoomed plate back to the box. */
   width:auto;
   height:auto;
-  max-width:100%;
-  max-height:100%;
   aspect-ratio:2016 / 2867;
   object-fit:contain;
   flex:0 0 auto;
@@ -560,7 +578,29 @@ body::before{
   flex:1 1 auto;
   overflow-y:auto;
   -webkit-overflow-scrolling:touch;
-  padding:10px 0;
+  padding:10px 0 14px;
+}
+
+/* the programme's act headings, as printed on the Scenes page */
+.toc-sec{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:16px 24px 6px;
+}
+.toc-sec:first-child{padding-top:4px;}
+.toc-sec-label{
+  flex:0 0 auto;
+  font-size:8.5px;
+  letter-spacing:.34em;
+  text-transform:uppercase;
+  color:var(--muted);
+  white-space:nowrap;
+}
+.toc-sec-rule{
+  flex:1 1 auto;
+  height:1px;
+  background:var(--line);
 }
 
 .toc-item{

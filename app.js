@@ -5,8 +5,10 @@
 
   var PAGE_COUNT = 16;
   var PAGE_RATIO = 128 / 182; // width / height of every plate
-  var PLATE_W = 2016;         // the plates' own pixel size (400dpi) — the zoom view
+  var PLATE_W = 2016;         // the plates' own pixel size (400dpi) — the flipbook
   var PLATE_H = 2867;         // always shows them at this ratio, never stretched to fit
+  var HI_W = 3024;            // the magnifier reads a 600dpi plate (13.0 MP — under
+  var HI_H = 4300;            // iOS's 16.7 MP image limit, so it always decodes)
 
   /* JANG HANEUM · 2nd EP [DAYDREAM] — Apple Music album 1888138163
      (2026-03-30, 9 tracks). Each scene points the official dark embed at its
@@ -23,6 +25,16 @@
     { num: '07', title: 'Imperfect',      scene: 'Scene 07', page: 12, am: '1888138282' },
     { num: '08', title: 'After the dream', scene: 'Scene 08', page: 13, am: '1888138287' },
     { num: '09', title: 'MidsummerNight', scene: 'Scene 09', page: 14, am: '1888138290' }
+  ];
+
+  /* The programme's own structure, as printed on p02: the drawer repeats the
+     magazine's act headings instead of one undifferentiated list. */
+  var SECTIONS = [
+    { label: 'Prologue', from: 0 },
+    { label: 'Act I', from: 1 },
+    { label: 'Intermission', from: 4 },
+    { label: 'Act II', from: 5 },
+    { label: 'Finale', from: 8 }
   ];
 
   function embedSrc(t) {
@@ -94,6 +106,16 @@
 
   function plateSrc(n) {
     return './pages/p' + (n < 10 ? '0' + n : n) + '.jpg';
+  }
+
+  // 600dpi copy of the same plate, used only where the reader magnifies
+  function hiPlateSrc(n) {
+    return './pages/hi/p' + (n < 10 ? '0' + n : n) + '.jpg';
+  }
+
+  // a phone is given at most 3x: past that the plate only gets bigger, not sharper
+  function dpr() {
+    return Math.min(window.devicePixelRatio || 1, 3);
   }
 
   function preload() {
@@ -310,6 +332,13 @@
     bookEl.style.transform = closedCover ? 'translateX(-25%)'
       : closedBack ? 'translateX(25%)' : 'translateX(0)';
     bookEl.classList.toggle('is-spread', isSpread && !closedCover && !closedBack);
+    bookEl.classList.toggle('is-back', !!closedBack);
+    // the shadow layer follows the plate(s) the library actually draws: the two
+    // inside pages fill the book, a closed cover or curtain call occupies one
+    // half of it on a spread layout and all of it in portrait
+    var closed = closedCover || closedBack;
+    bookEl.style.setProperty('--plate-w', (!isSpread || !closed) ? '100%' : '50%');
+    bookEl.style.setProperty('--plate-x', (isSpread && closed) ? '50%' : '0%');
   }
 
   function whenRead(cb, tries) {
@@ -396,47 +425,86 @@
 
   var zv = {
     open: false, scale: 1, min: 1, max: 3, x: 0, y: 0, plate: 1,
+    baseW: 0, baseH: 0, naturalW: PLATE_W, naturalH: PLATE_H,
     pointers: new Map(), pinch: null, lastTap: 0, lastTapX: 0, lastTapY: 0
   };
   var zoomHideTimer = null;
 
-  /* Fit the plate inside the zoom canvas at its own 2016:2867 ratio. The box is
-     written in pixels so the picture is never squeezed by max-width alone: the
-     width/height attributes carry the ratio before the file has decoded. */
+  /* Fit the plate inside the zoom canvas at its own ratio, then paint it at the
+     current zoom by LAYOUT size, never by transform: scale(). A transform only
+     stretches the bitmap the browser already rasterised at fit size, which is
+     exactly what turned the type to mush on iOS; re-laying the <img> out makes
+     the browser resample the 600dpi plate at the pixels it truly draws. The pan
+     stays a translate, which moves pixels without resampling them. */
   function layoutPlate() {
     var img = zoomCanvas.querySelector('img');
     if (!img) { return; }
-    var nw = img.naturalWidth || PLATE_W;
-    var nh = img.naturalHeight || PLATE_H;
+    var nw = img.naturalWidth || zv.naturalW || PLATE_W;
+    var nh = img.naturalHeight || zv.naturalH || PLATE_H;
     if (!nw || !nh) { return; }
+    zv.naturalW = nw; zv.naturalH = nh;
     var boxW = zoomCanvas.clientWidth;
     var boxH = zoomCanvas.clientHeight;
     if (boxW < 8 || boxH < 8) { return; }
     var ratio = nw / nh;
     var w = Math.min(boxW, boxH * ratio);
-    var h = w / ratio;
-    img.style.width = w + 'px';
-    img.style.height = h + 'px';
+    zv.baseW = w;
+    zv.baseH = w / ratio;
+    // stop where the plate's own pixels run out on this screen (1:1 device px)
+    var limit = nw / (zv.baseW * dpr());
+    zv.max = Math.max(1.2, Math.min(3, Math.floor(limit * 100) / 100));
+    if (zv.scale > zv.max) { zv.scale = zv.max; }
     clampPan();
     applyZoom();
+  }
+
+  /* The 600dpi plate is 1.5x the flipbook plate, so it is fetched after the
+     first paint: the cached page stays on screen and the same <img> switches to
+     the sharper file once it has decoded, so nothing flashes or jumps. */
+  var plateCache = {};
+
+  function sharpPlate(n, cb) {
+    var url = hiPlateSrc(n);
+    var c = plateCache[n];
+    if (!c) {
+      c = plateCache[n] = new Image();
+      c.src = url;
+    }
+    if (c.complete && c.naturalWidth) {
+      if (c.decode) { c.decode().then(cb, cb); } else { cb(); }
+      return;
+    }
+    c.addEventListener('load', function () {
+      if (c.decode) { c.decode().then(cb, cb); } else { cb(); }
+    });
   }
 
   function setZoomPlate(n) {
     zv.plate = Math.min(PAGE_COUNT, Math.max(1, n));
     zoomCanvas.innerHTML = '';
     var img = document.createElement('img');
-    img.width = PLATE_W;
-    img.height = PLATE_H;
+    img.width = HI_W;   // reserves the plate's ratio before anything decodes
+    img.height = HI_H;
     img.alt = 'Plate ' + pad(zv.plate);
     img.draggable = false;
     img.addEventListener('load', layoutPlate);
-    img.src = plateSrc(zv.plate);
+    img.src = plateSrc(zv.plate);  // already in cache from the flipbook: instant
     zoomCanvas.appendChild(img);
+    zv.baseW = 0; zv.baseH = 0;
+    zv.naturalW = PLATE_W; zv.naturalH = PLATE_H;
     zoomLabel.textContent = pad(zv.plate) + ' / ' + PAGE_COUNT;
     zoomPrev.disabled = zv.plate <= 1;
     zoomNext.disabled = zv.plate >= PAGE_COUNT;
+    var plate = zv.plate;
+    sharpPlate(plate, function () {
+      if (zv.plate !== plate) { return; }
+      var cur = zoomCanvas.querySelector('img');
+      if (!cur || cur.getAttribute('src') === hiPlateSrc(plate)) { return; }
+      cur.src = hiPlateSrc(plate);   // fires load -> layoutPlate with 3024px source
+    });
     layoutPlate();
   }
+
 
   function openZoom() {
     if (!pageFlip) { return; }
@@ -565,17 +633,21 @@
   }
 
   function applyZoom() {
-    zoomCanvas.style.transform = 'translate(' + zv.x + 'px,' + zv.y + 'px) scale(' + zv.scale + ')';
+    var img = zoomCanvas.querySelector('img');
+    if (img && zv.baseW) {
+      img.style.width = (zv.baseW * zv.scale) + 'px';
+      img.style.height = (zv.baseH * zv.scale) + 'px';
+    }
+    zoomCanvas.style.transform = 'translate(' + zv.x + 'px,' + zv.y + 'px)';
     zoomPct.textContent = Math.round(zv.scale * 100) + '%';
     zoomIn.disabled = zv.scale >= zv.max - 0.001;
     zoomOut.disabled = zv.scale <= zv.min + 0.001;
   }
 
   function clampPan() {
-    var img = zoomCanvas.querySelector('img');
-    if (!img) { return; }
-    var w = img.offsetWidth * zv.scale;
-    var h = img.offsetHeight * zv.scale;
+    if (!zv.baseW) { return; }
+    var w = zv.baseW * zv.scale;
+    var h = zv.baseH * zv.scale;
     var overW = Math.max(0, (w - zoomCanvas.clientWidth) / 2);
     var overH = Math.max(0, (h - zoomCanvas.clientHeight) / 2);
     zv.x = Math.min(overW, Math.max(-overW, zv.x));
@@ -600,9 +672,7 @@
 
   function resetZoom() {
     zv.scale = zv.min; zv.x = 0; zv.y = 0;
-    zoomCanvas.style.transition = 'transform .26s cubic-bezier(.25,.7,.25,1)';
     applyZoom();
-    window.setTimeout(function () { zoomCanvas.style.transition = ''; }, 280);
   }
 
   function wireZoom() {
@@ -705,14 +775,53 @@
      book is scaled, one finger moves it (a drag must not turn the page), and a
      tap puts it back to fit. */
   var bz = {
-    scale: 1, max: 4, x: 0, y: 0, pinch: null, pan: null
+    scale: 1, max: 4, x: 0, y: 0, pinch: null, pan: null, sharp: false
   };
+
+  /* The spread may be scaled only as far as its own pixels go on this screen:
+     beyond that the transform has nothing left to show but blurred strokes. */
+  function baseZoomLimit() {
+    var m = metrics();
+    var closed = !m.spread || currentIndex === 0 || currentIndex >= PAGE_COUNT - 1;
+    var bookCss = closed ? m.pageW : m.pageW * 2;
+    if (!bookCss) { return 4; }
+    var limit = HI_W / (bookCss * dpr());
+    return Math.max(1.5, Math.min(4, Math.floor(limit * 100) / 100));
+  }
+
+  /* A two-finger scale is a transform, and a transform can only stretch the
+     bitmap the browser already rasterised at fit size. So while the spread sits
+     scaled, the pages are handed their 600dpi plate (and given back when it
+     returns to fit, which also releases them): whatever gets drawn at the new
+     scale is then sampled from 3024px instead of 2016px. */
+  function sharpenBook(sharp) {
+    if (!bookEl || bz.sharp === sharp) { return; }
+    var pages = bookEl.querySelectorAll('.page');
+    for (var i = 0; i < pages.length; i++) {
+      var img = pages[i].querySelector('img');
+      if (!img) { continue; }
+      var n = i + 1;
+      if (!sharp) {
+        if (img.getAttribute('src') !== plateSrc(n)) { img.setAttribute('src', plateSrc(n)); }
+        continue;
+      }
+      if (pages[i].getBoundingClientRect().width < 8) { continue; }  // only what is drawn
+      (function (image, num) {
+        sharpPlate(num, function () {
+          if (!bz.sharp) { return; }
+          if (image.getAttribute('src') !== hiPlateSrc(num)) { image.src = hiPlateSrc(num); }
+        });
+      })(img, n);
+    }
+    bz.sharp = sharp;
+  }
 
   function applyBaseZoom() {
     if (bz.scale <= 1.001) {
       bz.scale = 1; bz.x = 0; bz.y = 0;
       wrapEl.style.transform = '';
       stageEl.classList.remove('is-zoomed');
+      sharpenBook(false);
       return;
     }
     wrapEl.style.transform =
@@ -734,13 +843,31 @@
     bz.scale = 1;
     bz.x = 0;
     bz.y = 0;
+    if (stageEl) { stageEl.classList.remove('is-pinching-base'); }
     applyBaseZoom();
   }
 
   /* ---------------- table of contents ---------------- */
 
+  function tocSectionEl(label) {
+    var head = document.createElement('div');
+    head.className = 'toc-sec';
+    head.setAttribute('aria-hidden', 'true');
+    var name = document.createElement('span');
+    name.className = 'toc-sec-label';
+    name.textContent = label;
+    var rule = document.createElement('span');
+    rule.className = 'toc-sec-rule';
+    head.appendChild(name);
+    head.appendChild(rule);
+    return head;
+  }
+
   function buildToc() {
+    var heads = {};
+    SECTIONS.forEach(function (s) { heads[s.from] = s.label; });
     TRACKS.forEach(function (t, i) {
+      if (heads[i]) { tocList.appendChild(tocSectionEl(heads[i])); }
       var b = document.createElement('button');
       b.type = 'button';
       b.className = 'toc-item';
@@ -768,6 +895,7 @@
 
   function updateTocActive() {
     Array.prototype.forEach.call(tocList.children, function (item) {
+      if (!item.dataset.track) { return; }  // section heading, not a track
       item.classList.toggle('is-active', Number(item.dataset.track) === focusTrack);
     });
   }
@@ -886,7 +1014,9 @@
         swipe = null;
         bz.pan = null;
         var p = touchPair(e);
-        bz.pinch = { d: p.d, mx: p.mx, my: p.my, scale: bz.scale, x: bz.x, y: bz.y };
+        bz.pinch = { d: p.d, mx: p.mx, my: p.my, scale: bz.scale, x: bz.x, y: bz.y,
+                     limit: baseZoomLimit() };
+        stageEl.classList.add('is-pinching-base');
         suppressClickUntil = Date.now() + 600;
         return;
       }
@@ -909,7 +1039,8 @@
         e.stopPropagation();
         var p = touchPair(e);
         if (bz.pinch.d > 0) {
-          bz.scale = Math.min(bz.max, Math.max(1, bz.pinch.scale * (p.d / bz.pinch.d)));
+          bz.scale = Math.min(bz.pinch.limit || bz.max,
+            Math.max(1, bz.pinch.scale * (p.d / bz.pinch.d)));
         }
         if (bz.scale <= 1.001) {
           bz.scale = 1; bz.x = 0; bz.y = 0;
@@ -943,9 +1074,11 @@
       if (bz.pinch) {
         if (e.touches.length >= 2) { return; }
         bz.pinch = null;
+        stageEl.classList.remove('is-pinching-base');
         suppressClickUntil = Date.now() + 250;
         // barely off fit? call it fit, so the spread never sits a hair oversized
         if (bz.scale < 1.08) { resetBaseZoom(); return; }
+        sharpenBook(true);
         if (e.touches.length === 1) {
           var rest = e.touches[0];
           bz.pan = { x: rest.clientX, y: rest.clientY, bx: bz.x, by: bz.y, moved: true };
