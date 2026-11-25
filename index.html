@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#11100f">
+<title>DAYDREAM TRACK NOTES — JANG HANEUM</title>
+<meta name="description" content="JANG HANEUM · THE 2ND EP [DAYDREAM] — TRACK NOTES. Two acts, nine scenes.">
+<link rel="stylesheet" href="./styles.css">
+<link rel="preconnect" href="https://www.youtube.com" crossorigin>
+<link rel="preconnect" href="https://i.ytimg.com" crossorigin>
+</head>
+<body>
+<div id="app">
+
+  <header class="hdr">
+    <div class="brand">
+      <span class="brand-main">Daydream</span>
+      <span class="brand-sep" aria-hidden="true">·</span>
+      <span class="brand-sub">Track Notes</span>
+    </div>
+    <div class="hdr-right">
+      <span class="counter" id="counter" aria-live="polite">01 / 16</span>
+      <button class="toc-btn icon-only" id="zoomBtn" type="button" aria-label="확대해서 보기" title="확대">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.4"/><path d="M10.4 10.4 14 14"/><path d="M7 5.2v3.6M5.2 7h3.6"/></svg>
+      </button>
+      <button class="toc-btn" id="tocBtn" type="button" aria-expanded="false" aria-controls="toc">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h8"/></svg>
+        <span>Tracks</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <div class="book-wrap">
+      <div class="book" id="book" aria-label="매거진 페이지"></div>
+    </div>
+
+    <button class="nav nav-prev" id="prevBtn" type="button" aria-label="이전 페이지">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4 7 12l8 8"/></svg>
+    </button>
+    <button class="nav nav-next" id="nextBtn" type="button" aria-label="다음 페이지">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4l8 8-8 8"/></svg>
+    </button>
+
+    <div class="loading" id="loading">
+      <div class="loading-inner">
+        <span class="loading-label">Plates</span>
+        <span class="loading-line"><i id="loadingBar"></i></span>
+        <span class="loading-count" id="loadingCount">0 / 16</span>
+      </div>
+    </div>
+  </main>
+
+  <footer class="bar" id="bar">
+    <div class="bar-id">
+      <span class="bar-scene" id="barScene">Scene 01</span>
+      <span class="bar-title" id="barTitle">Imagine</span>
+    </div>
+
+    <div class="bar-controls">
+      <button class="ctl" id="prevTrack" type="button" aria-label="이전 트랙">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5v14L8 12l10-7Z" fill="currentColor" stroke="none"/><path d="M6 5v14"/></svg>
+      </button>
+      <button class="ctl ctl-play" id="playBtn" type="button" aria-label="재생">
+        <svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15L20 12 7 4.5Z" fill="currentColor" stroke="none"/></svg>
+        <svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg>
+      </button>
+      <button class="ctl" id="nextTrack" type="button" aria-label="다음 트랙">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5v14l10-7L6 5Z" fill="currentColor" stroke="none"/><path d="M18 5v14"/></svg>
+      </button>
+    </div>
+
+    <div class="bar-progress">
+      <div class="progress" id="progress" role="slider" tabindex="0"
+           aria-label="재생 위치" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="progress-fill" id="progressFill"></div>
+        <div class="progress-knob" id="progressKnob"></div>
+      </div>
+      <div class="times">
+        <span id="tCur">0:00</span>
+        <span class="times-sep" aria-hidden="true">/</span>
+        <span id="tDur">0:00</span>
+      </div>
+    </div>
+
+    <div class="bar-player" id="playerShell">
+      <div class="player-frame">
+        <div id="ytPlayer"></div>
+        <div class="player-note" id="playerNote">
+          <span class="player-tag">Official audio</span>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <div class="toc-backdrop" id="tocBackdrop" hidden></div>
+
+  <div class="zoom" id="zoom" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-label="확대 보기">
+    <div class="zoom-bar">
+      <div class="zoom-nav">
+        <button class="zoom-tool" id="zoomPrev" type="button" aria-label="이전 페이지">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>
+        </button>
+        <span class="zoom-label" id="zoomLabel">01 / 16</span>
+        <button class="zoom-tool" id="zoomNext" type="button" aria-label="다음 페이지">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg>
+        </button>
+      </div>
+      <div class="zoom-tools">
+        <button class="zoom-tool" id="zoomOut" type="button" aria-label="축소">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8h8"/></svg>
+        </button>
+        <span class="zoom-pct" id="zoomPct">100%</span>
+        <button class="zoom-tool" id="zoomIn" type="button" aria-label="확대">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 4v8M4 8h8"/></svg>
+        </button>
+        <button class="zoom-fit" id="zoomFit" type="button">Fit</button>
+        <button class="zoom-tool" id="zoomClose" type="button" aria-label="확대 보기 닫기">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="zoom-stage" id="zoomStage">
+      <div class="zoom-canvas" id="zoomCanvas"></div>
+    </div>
+    <div class="zoom-hint" id="zoomHint">끌어서 이동 · 더블탭 확대</div>
+  </div>
+
+  <aside class="toc" id="toc" aria-hidden="true" aria-label="목차">
+    <div class="toc-head">
+      <span class="toc-kicker">Programme · Two Acts</span>
+      <button class="toc-close" id="tocClose" type="button" aria-label="목차 닫기">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13"/></svg>
+      </button>
+    </div>
+    <nav class="toc-list" id="tocList"></nav>
+    <div class="toc-foot">
+      <button class="toc-aux" data-page="1">Cover</button>
+      <button class="toc-aux" data-page="2">Scenes</button>
+      <button class="toc-aux" data-page="16">Curtain Call</button>
+    </div>
+  </aside>
+
+</div>
+
+<script src="./vendor/page-flip.browser.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>
