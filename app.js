@@ -463,10 +463,20 @@
      the sharper file once it has decoded, so nothing flashes or jumps. */
   var plateCache = {};
 
+  /* Keep only the plates near the one being read: each 600dpi plate decodes to
+     ~52MB, and a reader who pages through the viewer would otherwise keep all
+     sixteen alive. */
+  function prunePlateCache(keep) {
+    Object.keys(plateCache).forEach(function (k) {
+      if (Math.abs(Number(k) - keep) > 1) { delete plateCache[k]; }
+    });
+  }
+
   function sharpPlate(n, cb) {
     var url = hiPlateSrc(n);
     var c = plateCache[n];
     if (!c) {
+      prunePlateCache(n);
       c = plateCache[n] = new Image();
       c.src = url;
     }
