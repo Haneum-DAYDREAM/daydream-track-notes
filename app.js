@@ -6,17 +6,27 @@
   var PAGE_COUNT = 16;
   var PAGE_RATIO = 128 / 182; // width / height of every plate
 
+  /* JANG HANEUM · 2nd EP [DAYDREAM] — Apple Music album 1888138163
+     (2026-03-30, 9 tracks). Each scene points the official dark embed at its
+     own track: subscribers hear the full song, non-subscribers the 30s preview,
+     and neither gets a video pre-roll. */
+  var AM_ALBUM = '1888138163';
   var TRACKS = [
-    { num: '01', title: 'Imagine',        scene: 'Scene 01', page: 3,  id: '3yeYTi52VxI' },
-    { num: '02', title: 'Daydream',       scene: 'Scene 02', page: 4,  id: 'aWkPxOeKW_E' },
-    { num: '03', title: 'Kingdom come',   scene: 'Scene 03', page: 5,  id: 'QPyb9n1LjKs' },
-    { num: '04', title: 'WANNA',          scene: 'Scene 04', page: 6,  id: 'EJHtJSoVoz8' },
-    { num: '05', title: 'Hélas',          scene: 'Scene 05', page: 8,  id: 'rInM7pCtx7k' },
-    { num: '06', title: 'Only 1',         scene: 'Scene 06', page: 10, id: 'U8p40vMBbQc' },
-    { num: '07', title: 'Imperfect',      scene: 'Scene 07', page: 12, id: 'AhA2AQbiPfc' },
-    { num: '08', title: 'After the dream', scene: 'Scene 08', page: 13, id: '2iJ_tbRQwIw' },
-    { num: '09', title: 'MidsummerNight', scene: 'Scene 09', page: 14, id: 'XcT1uqzITfE' }
+    { num: '01', title: 'Imagine',        scene: 'Scene 01', page: 3,  am: '1888138167' },
+    { num: '02', title: 'Daydream',       scene: 'Scene 02', page: 4,  am: '1888138171' },
+    { num: '03', title: 'Kingdom come',   scene: 'Scene 03', page: 5,  am: '1888138265' },
+    { num: '04', title: 'WANNA',          scene: 'Scene 04', page: 6,  am: '1888138269' },
+    { num: '05', title: 'Hélas',          scene: 'Scene 05', page: 8,  am: '1888138273' },
+    { num: '06', title: 'Only 1',         scene: 'Scene 06', page: 10, am: '1888138278' },
+    { num: '07', title: 'Imperfect',      scene: 'Scene 07', page: 12, am: '1888138282' },
+    { num: '08', title: 'After the dream', scene: 'Scene 08', page: 13, am: '1888138287' },
+    { num: '09', title: 'MidsummerNight', scene: 'Scene 09', page: 14, am: '1888138290' }
   ];
+
+  function embedSrc(t) {
+    return 'https://embed.music.apple.com/kr/album/daydream/' + AM_ALBUM +
+      '?i=' + t.am + '&theme=dark';
+  }
 
   // plate number -> track index (plates 1, 2, 16 carry no track)
   var PLATE_TRACK = {
@@ -43,15 +53,9 @@
   var barId = document.querySelector('.bar-id');
   var barScene = el('barScene');
   var barTitle = el('barTitle');
-  var playBtn = el('playBtn');
   var prevTrackBtn = el('prevTrack');
   var nextTrackBtn = el('nextTrack');
-  var progressEl = el('progress');
-  var progressFill = el('progressFill');
-  var progressKnob = el('progressKnob');
-  var tCur = el('tCur');
-  var tDur = el('tDur');
-  var playerNote = el('playerNote');
+  var amPlayer = el('amPlayer');
   var loadingEl = el('loading');
   var loadingBar = el('loadingBar');
   var loadingCount = el('loadingCount');
@@ -78,13 +82,7 @@
   var currentIndex = 0;      // 0-based index of the left-most visible plate
   var focusTrack = 0;        // track shown in the bar
   var focusLock = false;     // keep focusTrack on the next flip (programmatic jumps)
-  var userStarted = false;   // has the user pressed play at least once
-  var player = null;
-  var playerReady = false;
-  var playerFailed = false;
-  var pendingPlay = false;
-  var isPlaying = false;
-  var tickTimer = null;
+  var currentEmbedId = TRACKS[0].am;  // the track the markup already points the embed at
   var resizing = false;
 
   /* ---------------- plates ---------------- */
@@ -143,8 +141,8 @@
     var cs = window.getComputedStyle(stageEl);
     var availW = stageEl.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     var availH = stageEl.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-    availW = Math.max(availW, 120);
-    availH = Math.max(availH, 160);
+    availW = Math.max(availW, 96);
+    availH = Math.max(availH, 110);
 
     var spread = (availW / availH) >= 1.16;
     var pageW = spread
@@ -245,7 +243,7 @@
     // the spread's main track: the left plate's track, else the right one's
     var main = PLATE_TRACK[plates[0]];
     if (main === undefined) { main = candidates[0]; }
-    setTrack(main, userStarted);
+    setTrack(main);
   }
 
   /* ---------------- header / nav ---------------- */
@@ -307,72 +305,30 @@
 
   /* ---------------- track bar ---------------- */
 
-  function setTrack(index, play) {
+  function setTrack(index) {
     if (index < 0 || index >= TRACKS.length) { return; }
-    var changed = index !== focusTrack;
+    if (index === focusTrack) { cueTrack(index); return; }
     focusTrack = index;
     var t = TRACKS[index];
 
     barScene.textContent = t.scene;
     barTitle.textContent = t.title;
     updateTocActive();
-
-    if (changed) {
-      clearPlayerNote();
-      barId.classList.add('is-changing');
-      window.setTimeout(function () { barId.classList.remove('is-changing'); }, 220);
-      progressFill.style.width = '0%';
-      progressKnob.style.left = '0%';
-      tCur.textContent = '0:00';
-      tDur.textContent = '0:00';
-    }
-    cueTrack(t.id, !!play);
+    barId.classList.add('is-changing');
+    window.setTimeout(function () { barId.classList.remove('is-changing'); }, 220);
+    cueTrack(index);
   }
 
-  function cueTrack(id, play) {
-    if (playerFailed) { return; }
-    if (!playerReady) {
-      pendingId = id;
-      pendingPlay = pendingPlay || !!play;
-      return;
-    }
-    if (play) {
-      player.loadVideoById(id);
-    } else if (currentVideoId !== id) {
-      player.cueVideoById(id);
-    }
-    currentVideoId = id;
-  }
-
-  var pendingId = null;
-  var currentVideoId = null;
-
-  function togglePlay() {
-    if (playerFailed) { return; }
-    if (!userStarted) {
-      userStarted = true;
-      playBtn.classList.remove('is-idle');
-      playBtn.setAttribute('aria-label', '일시정지');
-      if (playerReady) {
-        player.loadVideoById(TRACKS[focusTrack].id);
-        currentVideoId = TRACKS[focusTrack].id;
-      } else {
-        pendingPlay = true;
-      }
-      return;
-    }
-    if (!playerReady) { pendingPlay = true; return; }
-
-    if (isPlaying) {
-      player.pauseVideo();
-    } else {
-      var dur = 0;
-      try { dur = player.getDuration() || 0; } catch (e) { dur = 0; }
-      var cur = 0;
-      try { cur = player.getCurrentTime() || 0; } catch (e) { cur = 0; }
-      if (dur > 0 && dur - cur < 1) { player.seekTo(0, true); }
-      player.playVideo();
-    }
+  /* The Apple Music embed is its own player and has no external JS API, so a
+     change of scene only re-points the iframe at that track's page. The reader
+     presses the embed's own ▶ once — no pre-roll, no muted autoplay to fight. */
+  function cueTrack(index) {
+    var t = TRACKS[index];
+    if (!amPlayer || t.am === currentEmbedId) { return; }
+    currentEmbedId = t.am;
+    amPlayer.setAttribute('src', embedSrc(t));
+    amPlayer.setAttribute('title', 'Apple Music — ' + t.num + ' ' + t.title +
+      ' · 장한음 DAYDREAM');
   }
 
   function stepTrack(dir) {
@@ -381,179 +337,22 @@
   }
 
   function goToTrack(index) {
-    if (!pageFlip) { setTrack(index, false); return; }
+    if (index < 0 || index >= TRACKS.length) { return; }
+    if (!pageFlip) { setTrack(index); return; }
     var target = TRACKS[index].page - 1;
-    focusTrack = index;
     var plates = visiblePlates(currentIndex);
     if (plates.indexOf(TRACKS[index].page) !== -1) {
-      setTrack(index, userStarted);
+      setTrack(index);
       return;
     }
+    // hold this scene through the turn, even if the landing spread carries two tracks
     focusLock = true;
-    setTrack(index, false);
-    if (target !== currentIndex) {
-      pageFlip.turnToPage(target);
-    }
-    // after the turn, playback follows the new track
-    if (userStarted) {
-      window.setTimeout(function () {
-        if (playerReady && currentVideoId !== TRACKS[focusTrack].id) {
-          player.loadVideoById(TRACKS[focusTrack].id);
-          currentVideoId = TRACKS[focusTrack].id;
-        }
-      }, 420);
-    }
+    setTrack(index);
+    if (target !== currentIndex) { pageFlip.turnToPage(target); }
   }
 
-  /* ---------------- YouTube ---------------- */
 
-  function loadYouTubeApi() {
-    if (window.YT && window.YT.Player) { initPlayer(); return; }
-    var tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    tag.async = true;
-    tag.onerror = function () { onPlayerFailed(); };
-    document.head.appendChild(tag);
-
-    window.onYouTubeIframeAPIReady = function () { initPlayer(); };
-    window.setTimeout(function () {
-      if (!playerReady && !playerFailed) { onPlayerFailed(); }
-    }, 12000);
-  }
-
-  function initPlayer() {
-    if (player || playerFailed) { return; }
-    var vars = {
-      autoplay: 0,
-      controls: 0,
-      disablekb: 1,
-      modestbranding: 1,
-      rel: 0,
-      playsinline: 1,
-      fs: 0,
-      iv_load_policy: 3,
-      enablejsapi: 1
-    };
-    if (location.protocol === 'http:' || location.protocol === 'https:') {
-      vars.origin = location.origin;
-    }
-    try {
-      player = new YT.Player('ytPlayer', {
-        width: '100%',
-        height: '100%',
-        videoId: TRACKS[focusTrack].id,
-        playerVars: vars,
-        events: {
-          onReady: onPlayerReady,
-          onStateChange: onPlayerState,
-          onError: onPlayerError
-        }
-      });
-    } catch (err) {
-      onPlayerFailed();
-    }
-  }
-
-  function onPlayerReady() {
-    playerReady = true;
-    currentVideoId = TRACKS[focusTrack].id;
-    // the dark plate stays over the player until the first sound actually plays
-    if (pendingId && pendingId !== currentVideoId) {
-      if (pendingPlay) { player.loadVideoById(pendingId); } else { player.cueVideoById(pendingId); }
-      currentVideoId = pendingId;
-      pendingId = null;
-    }
-    if (pendingPlay) {
-      pendingPlay = false;
-      userStarted = true;
-      playBtn.classList.remove('is-idle');
-      playBtn.setAttribute('aria-label', '일시정지');
-      player.loadVideoById(TRACKS[focusTrack].id);
-      currentVideoId = TRACKS[focusTrack].id;
-    }
-    startTick();
-  }
-
-  function onPlayerState(e) {
-    isPlaying = (e.data === 1);
-    if (isPlaying) { playerNote.classList.add('is-hidden'); }
-    playBtn.classList.toggle('is-playing', isPlaying);
-    if (userStarted) {
-      playBtn.classList.toggle('is-idle', false);
-      playBtn.setAttribute('aria-label', isPlaying ? '일시정지' : '재생');
-    }
-  }
-
-  var lastErrorCode = null;
-
-  function onPlayerError(e) {
-    lastErrorCode = e && e.data;
-    // 2/5/100/101/150: this clip (or this network) cannot play in the embed.
-    // Keep the magazine and the other tracks usable, and point to YouTube.
-    showPlayerNote(
-      '이 영상은 삽입 재생이 제한됩니다',
-      'https://www.youtube.com/watch?v=' + (currentVideoId || TRACKS[focusTrack].id)
-    );
-  }
-
-  function showPlayerNote(text, url) {
-    playerNote.classList.remove('is-hidden');
-    playerNote.classList.add('is-error');
-    playerNote.innerHTML = '<span>' + text + '</span><br><a href="' + url +
-      '" target="_blank" rel="noopener">YouTube에서 열기 \u2197</a>';
-  }
-
-  function clearPlayerNote() {
-    if (!playerNote.classList.contains('is-error')) { return; }
-    playerNote.classList.remove('is-error');
-    playerNote.innerHTML = '<span class="player-tag">Official audio</span>';
-  }
-
-  function onPlayerFailed() {
-    playerFailed = true;
-    playerNote.classList.remove('is-hidden');
-    playerNote.classList.add('is-error');
-    playerNote.textContent = 'YouTube 음원을 불러오지 못했습니다';
-  }
-
-  function startTick() {
-    if (tickTimer) { return; }
-    tickTimer = window.setInterval(tick, 250);
-  }
-
-  function tick() {
-    if (!playerReady || !player) { return; }
-    var dur = 0, cur = 0;
-    try { dur = player.getDuration() || 0; cur = player.getCurrentTime() || 0; } catch (err) { return; }
-    if (dur > 0) {
-      var pct = Math.min(100, (cur / dur) * 100);
-      progressFill.style.width = pct + '%';
-      progressKnob.style.left = pct + '%';
-      progressEl.setAttribute('aria-valuenow', Math.round(pct));
-      tCur.textContent = fmt(cur);
-      tDur.textContent = fmt(dur);
-    }
-  }
-
-  function fmt(sec) {
-    sec = Math.max(0, Math.floor(sec || 0));
-    var m = Math.floor(sec / 60);
-    var s = sec % 60;
-    return m + ':' + (s < 10 ? '0' + s : s);
-  }
-
-  function seekFromEvent(evt) {
-    if (!playerReady || !player) { return; }
-    var rect = progressEl.getBoundingClientRect();
-    var x = (evt.touches ? evt.touches[0].clientX : evt.clientX) - rect.left;
-    var ratio = Math.max(0, Math.min(1, x / rect.width));
-    var dur = 0;
-    try { dur = player.getDuration() || 0; } catch (err) { return; }
-    if (!dur) { return; }
-    player.seekTo(dur * ratio, true);
-    progressFill.style.width = (ratio * 100) + '%';
-    progressKnob.style.left = (ratio * 100) + '%';
-  }
+  /* the bottom bar is Apple Music's own embed — no player API to drive */
 
   /* ---------------- zoom view ---------------- */
 
@@ -801,7 +600,6 @@
   function wire() {
     nextBtn.addEventListener('click', next);
     prevBtn.addEventListener('click', prev);
-    playBtn.addEventListener('click', togglePlay);
     prevTrackBtn.addEventListener('click', function () { stepTrack(-1); });
     nextTrackBtn.addEventListener('click', function () { stepTrack(1); });
 
@@ -819,17 +617,7 @@
       if (e.clientX - r.left > r.width / 2) { next(); } else { prev(); }
     });
 
-    progressEl.addEventListener('click', seekFromEvent);
     wireZoom();
-    progressEl.addEventListener('keydown', function (e) {
-      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-        e.preventDefault();
-        e.stopPropagation();
-        if (!playerReady) { return; }
-        var cur = player.getCurrentTime() || 0;
-        player.seekTo(Math.max(0, cur + (e.key === 'ArrowRight' ? 5 : -5)), true);
-      }
-    });
 
     document.addEventListener('keydown', function (e) {
       if (zv.open) {
@@ -845,11 +633,7 @@
       if (e.key === 'ArrowRight' || e.key === 'PageDown') { next(); }
       else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { prev(); }
       else if (e.key === 'Escape') { closeToc(); }
-      else if (e.key === ' ' || e.code === 'Space') {
-        if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) { return; }
-        e.preventDefault();
-        togglePlay();
-      } else if (e.key === 't' || e.key === 'T') {
+      else if (e.key === 't' || e.key === 'T') {
         if (tocEl.classList.contains('is-open')) { closeToc(); } else { openToc(); }
       }
     });
@@ -936,9 +720,7 @@
     onFlip(0);
     renderNav();
     renderBookState();
-    setTrack(0, false);
-    playBtn.classList.add('is-idle');
-    loadYouTubeApi();
+    setTrack(0);
   }
 
   buildToc();
@@ -953,14 +735,9 @@
           page: currentIndex,
           spread: isSpread,
           track: focusTrack,
-          videoId: currentVideoId,
-          ready: playerReady,
-          failed: playerFailed,
-          started: userStarted,
-          playing: isPlaying,
-          playerState: (playerReady && player && player.getPlayerState) ? player.getPlayerState() : -1,
-          time: (playerReady && player && player.getCurrentTime) ? player.getCurrentTime() : 0,
-          error: lastErrorCode
+          embed: amPlayer ? amPlayer.getAttribute('src') : null,
+          embedTitle: amPlayer ? amPlayer.getAttribute('title') : null,
+          trackTitle: TRACKS[focusTrack].title
         };
       },
       goToTrack: goToTrack,

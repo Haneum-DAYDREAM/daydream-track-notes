@@ -7,8 +7,8 @@
 <title>DAYDREAM TRACK NOTES — JANG HANEUM</title>
 <meta name="description" content="JANG HANEUM · THE 2ND EP [DAYDREAM] — TRACK NOTES. Two acts, nine scenes.">
 <link rel="stylesheet" href="./styles.css">
-<link rel="preconnect" href="https://www.youtube.com" crossorigin>
-<link rel="preconnect" href="https://i.ytimg.com" crossorigin>
+<link rel="preconnect" href="https://embed.music.apple.com" crossorigin>
+<link rel="preconnect" href="https://js-cdn.music.apple.com" crossorigin>
 </head>
 <body>
 <div id="app">
@@ -62,34 +62,19 @@
       <button class="ctl" id="prevTrack" type="button" aria-label="이전 트랙">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5v14L8 12l10-7Z" fill="currentColor" stroke="none"/><path d="M6 5v14"/></svg>
       </button>
-      <button class="ctl ctl-play" id="playBtn" type="button" aria-label="재생">
-        <svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15L20 12 7 4.5Z" fill="currentColor" stroke="none"/></svg>
-        <svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg>
-      </button>
       <button class="ctl" id="nextTrack" type="button" aria-label="다음 트랙">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5v14l10-7L6 5Z" fill="currentColor" stroke="none"/><path d="M18 5v14"/></svg>
       </button>
-    </div>
-
-    <div class="bar-progress">
-      <div class="progress" id="progress" role="slider" tabindex="0"
-           aria-label="재생 위치" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-        <div class="progress-fill" id="progressFill"></div>
-        <div class="progress-knob" id="progressKnob"></div>
-      </div>
-      <div class="times">
-        <span id="tCur">0:00</span>
-        <span class="times-sep" aria-hidden="true">/</span>
-        <span id="tDur">0:00</span>
-      </div>
+      <span class="bar-hint" id="barHint">Apple Music</span>
     </div>
 
     <div class="bar-player" id="playerShell">
       <div class="player-frame">
-        <div id="ytPlayer"></div>
-        <div class="player-note" id="playerNote">
-          <span class="player-tag">Official audio</span>
-        </div>
+        <iframe id="amPlayer" title="Apple Music — 01 Imagine · 장한음 DAYDREAM"
+                height="182" loading="eager"
+                allow="autoplay *; encrypted-media *; fullscreen *; clipboard-write"
+                sandbox="allow-forms allow-popups allow-same-origin allow-scripts allow-storage-access-by-user-activation allow-top-navigation-by-user-activation"
+                src="https://embed.music.apple.com/kr/album/daydream/1888138163?i=1888138167&amp;theme=dark"></iframe>
       </div>
     </div>
   </footer>
