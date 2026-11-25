@@ -5,6 +5,8 @@
 
   var PAGE_COUNT = 16;
   var PAGE_RATIO = 128 / 182; // width / height of every plate
+  var PLATE_W = 1008;         // the plates' own pixel size — the zoom view always
+  var PLATE_H = 1434;         // shows them at this ratio, never stretched to fit
 
   /* JANG HANEUM · 2nd EP [DAYDREAM] — Apple Music album 1888138163
      (2026-03-30, 9 tracks). Each scene points the official dark embed at its
@@ -361,19 +363,42 @@
     pointers: new Map(), pinch: null, lastTap: 0, lastTapX: 0, lastTapY: 0
   };
 
+  /* Fit the plate inside the zoom canvas at its own 1008:1434 ratio. The box is
+     written in pixels so the picture is never squeezed by max-width alone: the
+     width/height attributes carry the ratio before the file has decoded. */
+  function layoutPlate() {
+    var img = zoomCanvas.querySelector('img');
+    if (!img) { return; }
+    var nw = img.naturalWidth || PLATE_W;
+    var nh = img.naturalHeight || PLATE_H;
+    if (!nw || !nh) { return; }
+    var boxW = zoomCanvas.clientWidth;
+    var boxH = zoomCanvas.clientHeight;
+    if (boxW < 8 || boxH < 8) { return; }
+    var ratio = nw / nh;
+    var w = Math.min(boxW, boxH * ratio);
+    var h = w / ratio;
+    img.style.width = w + 'px';
+    img.style.height = h + 'px';
+    clampPan();
+    applyZoom();
+  }
+
   function setZoomPlate(n) {
     zv.plate = Math.min(PAGE_COUNT, Math.max(1, n));
     zoomCanvas.innerHTML = '';
     var img = document.createElement('img');
-    img.src = plateSrc(zv.plate);
+    img.width = PLATE_W;
+    img.height = PLATE_H;
     img.alt = 'Plate ' + pad(zv.plate);
     img.draggable = false;
+    img.addEventListener('load', layoutPlate);
+    img.src = plateSrc(zv.plate);
     zoomCanvas.appendChild(img);
     zoomLabel.textContent = pad(zv.plate) + ' / ' + PAGE_COUNT;
     zoomPrev.disabled = zv.plate <= 1;
     zoomNext.disabled = zv.plate >= PAGE_COUNT;
-    clampPan();
-    applyZoom();
+    layoutPlate();
   }
 
   function openZoom() {
@@ -395,8 +420,30 @@
     zoomClose.focus({ preventScroll: true });
   }
 
+  /* Leave the reader where the zoom view left them: the book (and with it the
+     track bar) moves to the plate last seen. If that plate is already on screen
+     nothing is reloaded or turned. */
+  function spreadIndexFor(plate) {
+    if (plate <= 1) { return 0; }
+    if (plate >= PAGE_COUNT) { return PAGE_COUNT - 1; }
+    // spreads run [2,3] [4,5] … so an odd plate sits on the right of the one before it
+    return (plate % 2 === 0) ? plate - 1 : plate - 2;
+  }
+
+  function syncBookToPlate(plate) {
+    if (!pageFlip) { return; }
+    plate = Math.min(PAGE_COUNT, Math.max(1, plate));
+    if (visiblePlates(currentIndex).indexOf(plate) !== -1) { return; }
+    var target = isSpread ? spreadIndexFor(plate) : plate - 1;
+    target = Math.min(PAGE_COUNT - 1, Math.max(0, target));
+    if (target === currentIndex) { return; }
+    focusLock = false;   // the bar follows the spread the reader lands on
+    whenRead(function () { pageFlip.turnToPage(target); }, 0);
+  }
+
   function closeZoom() {
     if (!zv.open) { return; }
+    var lastPlate = zv.plate;
     zv.open = false;
     zoomEl.classList.remove('is-open');
     zoomEl.setAttribute('aria-hidden', 'true');
@@ -405,6 +452,7 @@
     window.setTimeout(function () {
       if (!zv.open) { zoomEl.hidden = true; }
     }, 300);
+    syncBookToPlate(lastPlate);
     if (zoomBtn) { zoomBtn.focus({ preventScroll: true }); }
   }
 
@@ -642,6 +690,7 @@
     window.addEventListener('resize', function () {
       if (resizeTimer) { window.clearTimeout(resizeTimer); }
       resizeTimer = window.setTimeout(function () {
+        if (zv.open) { layoutPlate(); }
         var m = metrics();
         if (!pageFlip) { applySize(m); return; }
         var changed = (m.spread !== isSpread) ||
@@ -658,6 +707,7 @@
         if (window.innerWidth !== lastW || window.innerHeight !== lastH) {
           lastW = window.innerWidth; lastH = window.innerHeight; relayout();
         }
+        if (zv.open) { layoutPlate(); }
       }, 260);
     });
 
@@ -741,6 +791,18 @@
         };
       },
       goToTrack: goToTrack,
+      zoom: function () {
+        var img = zoomCanvas.querySelector('img');
+        var r = img ? img.getBoundingClientRect() : null;
+        return {
+          open: zv.open, plate: zv.plate, scale: zv.scale,
+          natural: img ? [img.naturalWidth, img.naturalHeight] : null,
+          rect: r ? [r.width, r.height] : null
+        };
+      },
+      openZoom: openZoom,
+      closeZoom: closeZoom,
+      setZoomPlate: setZoomPlate,
       flipState: function () { try { return pageFlip.getState(); } catch (e) { return 'n/a'; } },
       flipNext: function () { pageFlip.flipNext(); }
     };
