@@ -6,7 +6,9 @@
 <meta name="theme-color" content="#11100f">
 <title>DAYDREAM TRACK NOTES — JANG HANEUM</title>
 <meta name="description" content="JANG HANEUM · THE 2ND EP [DAYDREAM] — TRACK NOTES. Two acts, nine scenes.">
-<link rel="stylesheet" href="./styles.css?v=20261125-6">
+<link rel="stylesheet" href="./styles.css?v=20261126-1">
+<!-- the cover is the one plate the reader waits for: fetch it before anything else -->
+<link rel="preload" as="image" href="./pages/p01.jpg" fetchpriority="high">
 <link rel="preconnect" href="https://embed.music.apple.com" crossorigin>
 <link rel="preconnect" href="https://js-cdn.music.apple.com" crossorigin>
 </head>
@@ -24,9 +26,10 @@
       <button class="toc-btn icon-only" id="zoomBtn" type="button" aria-label="확대해서 보기" title="확대">
         <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.4"/><path d="M10.4 10.4 14 14"/><path d="M7 5.2v3.6M5.2 7h3.6"/></svg>
       </button>
-      <button class="toc-btn" id="tocBtn" type="button" aria-expanded="false" aria-controls="toc">
+      <button class="toc-btn" id="tocBtn" type="button" aria-expanded="false" aria-controls="toc" aria-label="목차 열기">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h8"/></svg>
-        <span>Tracks</span>
+        <span class="toc-label-wide">Tracks</span>
+        <span class="toc-label-narrow">목차</span>
       </button>
     </div>
   </header>
@@ -69,12 +72,23 @@
     </div>
 
     <div class="bar-player" id="playerShell">
-      <div class="player-frame">
+      <!-- phones keep the bar to one compact row; tapping it opens the embed -->
+      <button class="mini-player" id="miniPlayer" type="button" aria-expanded="false" aria-controls="playerFrame">
+        <svg class="mini-note" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M6 12.4V4.6l7-1.6v7.6"/><ellipse cx="4.5" cy="12.4" rx="1.6" ry="1.3"/><ellipse cx="11.5" cy="10.6" rx="1.6" ry="1.3"/>
+        </svg>
+        <span class="mini-text">
+          <span class="mini-kicker">Apple Music</span>
+          <span class="mini-title" id="miniTitle">01 Imagine</span>
+        </span>
+        <svg class="mini-chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 10.5 8 6.5l4 4"/></svg>
+      </button>
+      <div class="player-frame" id="playerFrame">
         <iframe id="amPlayer" title="Apple Music — 01 Imagine · 장한음 DAYDREAM"
-                height="182" loading="eager"
+                height="182" loading="lazy"
                 allow="autoplay *; encrypted-media *; fullscreen *; clipboard-write"
                 sandbox="allow-forms allow-popups allow-same-origin allow-scripts allow-storage-access-by-user-activation allow-top-navigation-by-user-activation"
-                src="https://embed.music.apple.com/kr/album/daydream/1888138163?i=1888138167&amp;theme=dark"></iframe>
+                data-src="https://embed.music.apple.com/kr/album/daydream/1888138163?i=1888138167&amp;theme=dark"></iframe>
       </div>
     </div>
   </footer>
@@ -129,7 +143,7 @@
 
 </div>
 
-<script src="./vendor/page-flip.browser.js?v=20261125-6"></script>
-<script src="./app.js?v=20261125-6"></script>
+<script src="./vendor/page-flip.browser.js?v=20261126-1"></script>
+<script src="./app.js?v=20261126-1"></script>
 </body>
 </html>

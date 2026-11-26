@@ -126,6 +126,9 @@ body::before{
 }
 .toc-btn svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.3;stroke-linecap:round;}
 .toc-btn.icon-only{padding:0;width:32px;justify-content:center;}
+/* the drawer is labelled "Tracks" on the printed-magazine bar and "목차" on a phone,
+   where the icon alone was too easy to miss */
+.toc-label-narrow{display:none;}
 .toc-btn:hover{border-color:rgba(234,210,100,.5);color:var(--ink);}
 .toc-btn[aria-expanded="true"]{border-color:rgba(234,210,100,.6);color:var(--accent);}
 
@@ -381,6 +384,10 @@ body::before{
 }
 
 /* the embed carries its own artwork, title and play button */
+
+/* mini player — the phone's default: one compact row that opens the embed
+   (app.js toggles .bar-player.is-open). Desktop never shows it. */
+.mini-player{display:none;}
 
 /* ---------- zoom view ---------- */
 
@@ -685,11 +692,12 @@ body::before{
   .brand-main{font-size:17px;}
   .brand-sub{font-size:8.5px;letter-spacing:.34em;}
   .counter{display:inline;font-size:9px;letter-spacing:.16em;}
-  .hdr-right{gap:12px;}
-  .toc-btn{height:28px;padding:0 9px;letter-spacing:.18em;}
-  .toc-btn span{display:none;}
+  .hdr-right{gap:10px;}
+  .toc-btn{height:30px;padding:0 10px;gap:6px;font-size:10px;letter-spacing:.08em;}
+  .toc-label-wide{display:none;}
+  .toc-label-narrow{display:inline;}
   .toc-btn svg{width:15px;height:15px;}
-  .toc-btn.icon-only{width:28px;}
+  .toc-btn.icon-only{width:30px;height:30px;padding:0;}
 
   /* bar: one compact line for the scene, then the embed at the smallest height
      that still shows artwork, title, 재생 and 앱에서 보기 without clipping */
@@ -704,19 +712,30 @@ body::before{
   }
   .bar-id{grid-area:id;align-self:center;gap:3px;}
   .bar-controls{grid-area:controls;}
-  .bar-player{grid-area:player;justify-self:stretch;}
+  .bar-player{grid-area:player;justify-self:stretch;display:block;}
 
   .bar-title{font-size:14px;}
   .bar-scene{font-size:7.5px;letter-spacing:.26em;}
   .bar-hint{display:none;}
 
-  .ctl{width:28px;height:28px;}
-  .ctl svg{width:16px;height:16px;}
+  .ctl{width:32px;height:32px;}
+  .ctl svg{width:17px;height:17px;}
 
-  .player-frame{width:100%;height:150px;}
-
-  .nav{width:26px;height:46%;opacity:.4;transform:translateY(-50%);}
-  .nav svg{width:17px;height:17px;}
+  /* page-turn arrows: a thumb-sized target over the plate's edge */
+  .nav{
+    width:48px;height:62%;opacity:.6;
+    transform:translateY(-50%);
+    touch-action:manipulation;
+  }
+  .nav::before{
+    content:"";
+    position:absolute;
+    width:40px;height:40px;
+    border-radius:50%;
+    background:rgba(10,9,8,.42);
+    box-shadow:0 2px 10px rgba(0,0,0,.28);
+  }
+  .nav svg{position:relative;z-index:1;width:22px;height:22px;stroke-width:1.5;}
   .nav-prev{left:0;}
   .nav-next{right:0;}
 }
@@ -748,8 +767,81 @@ body::before{
   .player-frame{transform-origin:50% 50%;}
 }
 
+/* ---------- compact player ----------
+   A phone gives the embed no permanent slice of the screen: the bar carries one
+   compact row (mini player) that opens the Apple Music embed when tapped. Same
+   row in portrait and in landscape, where the bar is the wide one. app.js toggles
+   .bar-player.is-open and loads the embed on the first tap. */
+
+@media (max-width:760px), (max-height:620px) and (hover:none) and (pointer:coarse){
+  .bar-player{display:block;justify-self:stretch;}
+  .player-frame{display:none;width:100%;height:150px;transform:none;margin:0;}
+  .bar-player.is-open .player-frame{display:block;margin-top:6px;}
+
+  .mini-player{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    width:100%;
+    min-height:44px;
+    padding:0 10px;
+    border:1px solid var(--line);
+    border-radius:2px;
+    background:rgba(232,229,222,.03);
+    color:var(--ink-dim);
+    font-family:var(--sans);
+    text-align:left;
+    cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+    touch-action:manipulation;
+    transition:border-color .2s ease,background-color .2s ease,color .2s ease;
+  }
+  .mini-player:active{background:rgba(232,229,222,.07);}
+  .mini-note{
+    flex:0 0 auto;width:15px;height:15px;
+    fill:none;stroke:currentColor;stroke-width:1.25;
+    stroke-linecap:round;stroke-linejoin:round;color:var(--accent);
+  }
+  .mini-text{flex:1 1 auto;min-width:0;display:flex;align-items:baseline;gap:7px;}
+  .mini-kicker{
+    flex:0 0 auto;
+    font-size:7.5px;letter-spacing:.28em;text-transform:uppercase;color:var(--muted);
+  }
+  .mini-title{
+    font-family:var(--serif);font-style:italic;font-size:13.5px;line-height:1.1;
+    color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .mini-chev{
+    flex:0 0 auto;width:14px;height:14px;
+    fill:none;stroke:currentColor;stroke-width:1.4;
+    stroke-linecap:round;stroke-linejoin:round;
+    transition:transform .3s ease;
+  }
+  .bar-player.is-open .mini-chev{transform:rotate(180deg);}
+  .bar-player.is-open .mini-player{border-color:rgba(234,210,100,.45);color:var(--ink);}
+}
+
 @media (hover:none){
   .nav{opacity:.55;}
+}
+
+/* Held sideways there is no room to give the embed: it comes up over the stage
+   instead of pushing the plates into a 150px-high strip. */
+@media (max-height:620px) and (hover:none) and (pointer:coarse){
+  .bar-player{position:relative;}
+  .mini-player{max-width:380px;margin-left:auto;}
+  .bar-hint{display:none;}   /* the compact row already says Apple Music */
+  .bar-player.is-open .player-frame{
+    position:absolute;
+    left:0;
+    right:0;
+    bottom:calc(100% + 6px);
+    margin:0;
+    border-radius:10px;
+    background:#000;
+    box-shadow:0 18px 40px rgba(0,0,0,.6), inset 0 0 0 1px rgba(232,229,222,.12);
+    z-index:6;
+  }
 }
 
 @media (prefers-reduced-motion:reduce){

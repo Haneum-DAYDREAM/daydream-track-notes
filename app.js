@@ -70,6 +70,9 @@
   var prevTrackBtn = el('prevTrack');
   var nextTrackBtn = el('nextTrack');
   var amPlayer = el('amPlayer');
+  var playerShell = el('playerShell');
+  var miniPlayer = el('miniPlayer');
+  var miniTitle = el('miniTitle');
   var loadingEl = el('loading');
   var loadingBar = el('loadingBar');
   var loadingCount = el('loadingCount');
@@ -99,8 +102,16 @@
   var currentIndex = 0;      // 0-based index of the left-most visible plate
   var focusTrack = 0;        // track shown in the bar
   var focusLock = false;     // keep focusTrack on the next flip (programmatic jumps)
-  var currentEmbedId = TRACKS[0].am;  // the track the markup already points the embed at
+  var currentEmbedId = TRACKS[0].am;  // the track the embed points at
   var resizing = false;
+
+  /* A phone opens the bar to one row (the mini player) and loads the Apple Music
+     embed only when the reader taps it — the desktop bar keeps its full player.
+     Held sideways the bar is the wide one, so the short screen counts too. */
+  var PLAYER_MINI_QUERY = '(max-width: 760px), (max-height: 620px) and (hover: none) and (pointer: coarse)';
+  var playerMedia = window.matchMedia ? window.matchMedia(PLAYER_MINI_QUERY) : null;
+  var miniMode = !!(playerMedia && playerMedia.matches);
+  var playerOpen = !miniMode;
 
   /* ---------------- plates ---------------- */
 
@@ -118,31 +129,99 @@
     return Math.min(window.devicePixelRatio || 1, 3);
   }
 
+  /* The reader is waiting for one plate, not sixteen (each 400dpi plate is
+     ~0.5–1.5MB). The cover is fetched first at high priority and the book opens
+     the moment it is decoded; the programme then streams in behind it in reading
+     order at low priority. A page only gets its src once its plate is in the
+     cache, so every turn after that is a cache hit. */
+  var PLATE_CONCURRENCY = 3;
+  var plateQueue = [];
+  var plateInFlight = 0;
+  var preloaded = {};
+  var loadedPlates = 0;
+  var stageReady = false;
+
+  function markPlateLoaded() {
+    loadedPlates += 1;
+    var pct = Math.min(100, Math.round((loadedPlates / PAGE_COUNT) * 100));
+    if (loadingBar) { loadingBar.style.width = pct + '%'; }
+    if (loadingCount) { loadingCount.textContent = loadedPlates + ' / ' + PAGE_COUNT; }
+  }
+
+  function fetchPlate(n, priority, cb) {
+    // when the page already holds this plate, its own <img> makes the request:
+    // the same URL is never fetched twice and the pixels land straight on screen
+    var onPage = pageImgAt(n);
+    var img = (onPage && onPage.getAttribute('src')) ? onPage : new Image();
+    img.decoding = 'async';
+    try { img.fetchPriority = priority; }
+    catch (err) { img.setAttribute('fetchpriority', priority); }
+    img.onload = img.onerror = function () { markPlateLoaded(); if (cb) { cb(); } };
+    img.src = plateSrc(n);
+  }
+
+  function pumpPlates() {
+    while (plateInFlight < PLATE_CONCURRENCY && plateQueue.length) {
+      (function (n) {
+        plateInFlight += 1;
+        fetchPlate(n, 'low', function () {
+          plateInFlight -= 1;
+          preloaded[n] = true;
+          givePlateToPage(n);
+          pumpPlates();
+        });
+      })(plateQueue.shift());
+    }
+  }
+
+  function beginStage() {
+    if (stageReady) { return; }
+    stageReady = true;
+    start();
+  }
+
   function preload() {
-    var loaded = 0;
-    var done = false;
+    plateInFlight += 1;
+    fetchPlate(1, 'high', function () {
+      plateInFlight -= 1;
+      preloaded[1] = true;
+      givePlateToPage(1);
+      beginStage();
+      plateQueue = [];
+      for (var i = 2; i <= PAGE_COUNT; i++) { plateQueue.push(i); }
+      pumpPlates();
+    });
+    // safety: never leave the reader on the loader because of one slow plate
+    window.setTimeout(beginStage, 4000);
+  }
 
-    function step() {
-      loaded += 1;
-      var pct = Math.round((loaded / PAGE_COUNT) * 100);
-      loadingBar.style.width = pct + '%';
-      loadingCount.textContent = loaded + ' / ' + PAGE_COUNT;
-      if (loaded >= PAGE_COUNT && !done) {
-        done = true;
-        window.setTimeout(start, 180);
-      }
-    }
+  function pageImgAt(n) {
+    if (!bookEl) { return null; }
+    var pages = bookEl.querySelectorAll('.page');
+    var page = pages[n - 1];
+    return page ? page.querySelector('img') : null;
+  }
 
-    for (var i = 1; i <= PAGE_COUNT; i++) {
-      var img = new Image();
-      img.onload = step;
-      img.onerror = step;
-      img.src = plateSrc(i);
-    }
-    // safety: never leave the reader waiting on one slow plate
-    window.setTimeout(function () {
-      if (!done) { done = true; start(); }
-    }, 6000);
+  /* hand a cached plate to the page that draws it (the flip's temporary copy
+     clones this element, so the src has to be there before a turn starts) */
+  function givePlateToPage(n) {
+    var img = pageImgAt(n);
+    if (img && !img.getAttribute('src')) { img.src = plateSrc(n); }
+  }
+
+  /* the reader turned to a plate the background loader has not reached yet:
+     ask for it now instead of showing an empty page */
+  function ensurePlate(n) {
+    if (preloaded[n]) { givePlateToPage(n); return; }
+    var img = pageImgAt(n);
+    if (!img || img.getAttribute('src')) { return; }
+    try { img.fetchPriority = 'high'; } catch (err) { /* older browsers */ }
+    img.src = plateSrc(n);
+  }
+
+  function ensurePlatesThrough(last) {
+    last = Math.min(PAGE_COUNT, Math.max(1, last));
+    for (var n = 1; n <= last; n++) { ensurePlate(n); }
   }
 
   function buildPages() {
@@ -151,7 +230,14 @@
       var page = document.createElement('div');
       page.className = 'page';
       var img = document.createElement('img');
-      img.src = plateSrc(i);
+      // a page whose plate is already in the cache starts drawing at once; the
+      // others are handed over as the loader reaches them (see givePlateToPage)
+      if (i === 1 || preloaded[i]) {
+        img.src = plateSrc(i);
+        if (i === 1) {
+          try { img.fetchPriority = 'high'; } catch (err) { /* older browsers */ }
+        }
+      }
       img.alt = '';
       img.draggable = false;
       img.decoding = 'async';
@@ -160,6 +246,8 @@
     }
     bookEl.innerHTML = '';
     bookEl.appendChild(frag);
+    // the spread on screen and the two after it, so a turn never waits
+    ensurePlatesThrough(currentIndex + 4);
   }
 
   /* ---------------- geometry ---------------- */
@@ -278,6 +366,7 @@
   function onFlip(index) {
     currentIndex = normalizeIndex(index);
     var plates = visiblePlates(currentIndex);
+    ensurePlatesThrough(currentIndex + 4);
     renderCounter(plates);
     renderNav();
     // the closed/open shift waits until the leaf has landed
@@ -374,28 +463,47 @@
 
   function setTrack(index) {
     if (index < 0 || index >= TRACKS.length) { return; }
-    if (index === focusTrack) { cueTrack(index); return; }
+    if (index === focusTrack) { cueTrack(index); updateMini(); return; }
     focusTrack = index;
     var t = TRACKS[index];
 
     barScene.textContent = t.scene;
     barTitle.textContent = t.title;
+    updateMini();
     updateTocActive();
     barId.classList.add('is-changing');
     window.setTimeout(function () { barId.classList.remove('is-changing'); }, 220);
     cueTrack(index);
   }
 
+  function updateMini() {
+    if (!miniTitle) { return; }
+    var t = TRACKS[focusTrack];
+    miniTitle.textContent = t.num + ' ' + t.title;
+  }
+
   /* The Apple Music embed is its own player and has no external JS API, so a
      change of scene only re-points the iframe at that track's page. The reader
-     presses the embed's own ▶ once — no pre-roll, no muted autoplay to fight. */
-  function cueTrack(index) {
+     presses the embed's own ▶ once — no pre-roll, no muted autoplay to fight.
+     On a phone nothing is fetched until the mini bar is opened. */
+  function cueTrack(index, force) {
     var t = TRACKS[index];
-    if (!amPlayer || t.am === currentEmbedId) { return; }
+    if (!amPlayer || !t) { return; }
+    if (miniMode && !playerOpen) { currentEmbedId = t.am; return; }
+    if (!force && t.am === currentEmbedId && amPlayer.getAttribute('src')) { return; }
     currentEmbedId = t.am;
     amPlayer.setAttribute('src', embedSrc(t));
     amPlayer.setAttribute('title', 'Apple Music — ' + t.num + ' ' + t.title +
       ' · 장한음 DAYDREAM');
+  }
+
+  function setPlayerOpen(open) {
+    playerOpen = !!open;
+    if (playerShell) { playerShell.classList.toggle('is-open', playerOpen); }
+    if (miniPlayer) { miniPlayer.setAttribute('aria-expanded', playerOpen ? 'true' : 'false'); }
+    if (playerOpen) { cueTrack(focusTrack, true); }
+    // the bar changes height: the book has to be re-fitted to the room left
+    scheduleRelayout(220);
   }
 
   function stepTrack(dir) {
@@ -934,6 +1042,27 @@
 
   /* ---------------- wiring ---------------- */
 
+  /* Fit the book to whatever room the stage has now: opening or closing the mini
+     player shortens the bar without a window resize. */
+  function relayoutForStage() {
+    if (zv.open) { layoutPlate(); }
+    var m = metrics();
+    if (!pageFlip) { applySize(m); return; }
+    var changed = (m.spread !== isSpread) ||
+      Math.abs(bookEl.clientWidth - (m.spread ? m.pageW * 2 : m.pageW)) > 2 ||
+      Math.abs(bookEl.clientHeight - m.pageH) > 2;
+    if (changed) { relayout(); }
+  }
+
+  var relayoutTimer = null;
+  function scheduleRelayout(delay) {
+    if (relayoutTimer) { window.clearTimeout(relayoutTimer); }
+    relayoutTimer = window.setTimeout(function () {
+      relayoutTimer = null;
+      relayoutForStage();
+    }, delay === undefined ? 160 : delay);
+  }
+
   function wire() {
     nextBtn.addEventListener('click', next);
     prevBtn.addEventListener('click', prev);
@@ -945,6 +1074,25 @@
     });
     tocClose.addEventListener('click', closeToc);
     tocBackdrop.addEventListener('click', closeToc);
+
+    // the phone's compact bar opens the Apple Music embed on a tap
+    if (miniPlayer) {
+      miniPlayer.addEventListener('click', function () { setPlayerOpen(!playerOpen); });
+    }
+    if (playerMedia && playerMedia.addEventListener) {
+      playerMedia.addEventListener('change', function (e) {
+        miniMode = e.matches;
+        if (miniMode) {
+          setPlayerOpen(false);
+          return;
+        }
+        playerOpen = true;
+        if (playerShell) { playerShell.classList.remove('is-open'); }
+        if (miniPlayer) { miniPlayer.setAttribute('aria-expanded', 'true'); }
+        cueTrack(focusTrack);   // a wide bar always carries the player
+        scheduleRelayout(200);
+      });
+    }
 
     // tap left/right half to turn, on devices where the viewer owns gestures
     bookEl.addEventListener('click', function (e) {
@@ -980,13 +1128,7 @@
       if (resizeTimer) { window.clearTimeout(resizeTimer); }
       resizeTimer = window.setTimeout(function () {
         resetBaseZoom();
-        if (zv.open) { layoutPlate(); }
-        var m = metrics();
-        if (!pageFlip) { applySize(m); return; }
-        var changed = (m.spread !== isSpread) ||
-          Math.abs(bookEl.clientWidth - (m.spread ? m.pageW * 2 : m.pageW)) > 2 ||
-          Math.abs(bookEl.clientHeight - m.pageH) > 2;
-        if (changed) { relayout(); }
+        relayoutForStage();
       }, 160);
     });
 
@@ -1167,11 +1309,28 @@
           page: currentIndex,
           spread: isSpread,
           track: focusTrack,
+          mini: miniMode,
+          playerOpen: playerOpen,
           embed: amPlayer ? amPlayer.getAttribute('src') : null,
           embedTitle: amPlayer ? amPlayer.getAttribute('title') : null,
           trackTitle: TRACKS[focusTrack].title
         };
       },
+      plates: function () {
+        var imgs = [];
+        var pages = bookEl ? bookEl.querySelectorAll('.page') : [];
+        for (var i = 0; i < pages.length; i++) {
+          var im = pages[i].querySelector('img');
+          imgs.push({
+            n: i + 1,
+            src: im ? im.getAttribute('src') : null,
+            loaded: !!(im && im.complete && im.naturalWidth > 0),
+            priority: im ? (im.fetchPriority || im.getAttribute('fetchpriority')) : null
+          });
+        }
+        return { loaded: loadedPlates, cached: Object.keys(preloaded).length, imgs: imgs };
+      },
+      setPlayerOpen: setPlayerOpen,
       goToTrack: goToTrack,
       zoom: function () {
         var img = zoomCanvas.querySelector('img');
