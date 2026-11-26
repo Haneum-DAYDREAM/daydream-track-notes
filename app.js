@@ -454,9 +454,17 @@
     pageFlip.flipNext();
   }
 
+  /* Turning back has to look like turning forward: a leaf that folds and
+     swings over, not a page swapping in.
+     StPageFlip's flipPrev() defaults to the 'top' corner, and for a soft plate
+     that point draws the incoming page as a flat, straight-edged rectangle
+     sliding in from the left — no fold, no shadow, which on a phone reads as an
+     instant page swap. The 'bottom' corner makes the same back turn fold the
+     leaf (top-right curl in portrait, bottom-left in a spread) with its shadow,
+     the mirror of flipNext(). The cover is a hard page and folds either way. */
   function prev() {
     if (!pageFlip) { return; }
-    pageFlip.flipPrev();
+    pageFlip.flipPrev('bottom');
   }
 
   /* ---------------- track bar ---------------- */
@@ -1348,7 +1356,8 @@
       normalizeIndex: normalizeIndex,
       onFlip: function (i) { onFlip(i); },
       flipState: function () { try { return pageFlip.getState(); } catch (e) { return 'n/a'; } },
-      flipNext: function () { pageFlip.flipNext(); }
+      flipNext: function () { pageFlip.flipNext(); },
+      flipPrev: function () { prev(); }
     };
   }
 })();
